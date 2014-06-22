@@ -74,7 +74,7 @@ updateTaxiDashServers.start();
 /* * * * * * * * * * * * * * * ROUTES * * * * * * * * * * * * * * */
 //Server Core 
 var Hapi = require("hapi"),
-    server = new Hapi.Server(8888, "localhost");
+    server = new Hapi.Server(8888, "0.0.0.0");
 
 //Validation
 var Joi = require("joi");
@@ -95,7 +95,6 @@ var nearbyConfig = {
 
             logger.log('info', "Searching for TaxiDash server near " + lat + ", " + lon);
 
-            //db.runCommand({ geoNear: "servers", near: { coordinates: [lat, lon]}, num: 3 }, function(err, result){
             db.servers.find({ loc: { $near: { $geometry: { type: "Point", coordinates: [lon, lat]} , $maxDistance: 9999999 }}}, 
                 function(err, result){
                     if (err){
@@ -139,10 +138,18 @@ server.route({
 //Get TaxiDash Server By Name
 var nameConfig = {
     handler: function(request, reply) {
-        if (request.query.city_name){
+        var q = {};//query
+        if (request.query.city){
+            q.city = request.query.city;
+        } 
+        if (request.query.state){
+            q.state = request.query.state;
+        }
+
+        if (Object.keys(q).length){
             //Look up TaxiDash by ip address for city
-            logger.log('info', "Searching for TaxiDash server for " + request.query.city_name);
-            db.servers.find({name: request.query.city_name}, function(err, result){
+            logger.log('info', "Searching for TaxiDash server for " + request.query.city);
+            db.servers.find(q, function(err, result){
                 if (result){
                     var response = "";
 
@@ -151,7 +158,7 @@ var nameConfig = {
                     }
                     reply(response);
                 } else {
-                    reply("Could not find server by name " + request.query.city_name);
+                    reply("Could not find server by name " + request.query.city);
                 }
             });
         } else {
@@ -160,7 +167,8 @@ var nameConfig = {
     },
     validate: {
         query: {
-            city_name: Joi.string().min(1).max(100)
+            city: Joi.string().min(1).max(100),
+            state: Joi.string().min(1).max(2)
         }
     }
 }
@@ -172,10 +180,33 @@ server.route({
 
 //Get All TaxiDash Servers By Name
 server.route({
-    path: "/getTaxiDashNames",
+    path: "/getAllTaxiDashNames",
     method: "GET",
     handler: function(request, reply) {
-        reply("Getting all server names...");
+        logger.log('info', "Getting all server names...");
+        db.servers.find({}, function(err, result){
+            if (result){
+                var response = "",
+                    entry;
+
+                while(result.length){
+                    entry = result.pop();
+                    response += entry.city + "," + entry.state + " ";
+                }
+                reply(response);
+            } else {
+                reply("Could not find all servers");
+            }
+
+        });
+    }
+});
+
+server.route({
+    path: "/",
+    method: "GET",
+    handler: function(request, reply) {
+        reply("Welcome to the TaxiDash Registration Server.");
     }
 });
 
