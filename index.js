@@ -15,6 +15,7 @@
 
 /* * * * * * * * * * * * * * * LOGGER SET UP * * * * * * * * * * * * * * */
 var fs = require("fs"),
+    http = require("http"),
     logFile = fs.createWriteStream('./logFile.log', {flags: 'a'}),
     logger = require("caterpillar").createLogger(),
     human = require("caterpillar-human").createHuman();
@@ -36,20 +37,32 @@ logger.log('info', "Log file created on " + (new Date()));
 
 var databaseUrl = "localhost:27017/taxidash",
     collections = ["servers"],
-    db = require("mongojs").connect(databaseUrl, collections);
+    db = require("mongojs").connect(databaseUrl, collections),
+    increment = 604800000,//valid for 1 week
+    expiredTime = new Date().getTime() + increment;
 
 //Updating server info
 var updateServerInfo = function(){
     // Get all nameless or old server entries from the database 
     // and query their name 
     logger.log('info', 'Updating server name info');
-    db.servers.find({ city: null }, function(err, entries){
-        var i = entries.length;
+    db.servers.find({ $or: [ {city: null }, { last_updated: { $gt: expiredTime } }]}, function(err, entries){
+        var i = entries.length,
+            name,
+            city;
         while (i--){
             //get names of each entry and update it
-            //TODO
             logger.log('info', 'Updating name for ' + entries[i].ip);
-            var name = "Nashville";//TODO Get the right name
+            http.get(options, function(resp){
+                resp.on('data', function(chunk){
+                    console.log("info", "received " + chunk + " from " + entries[i].ip);
+                    //TODO
+                    //name = "Nashville";//TODO Get the right name
+                    //city = 
+                }).on("error", function(e){
+                    logger.log("error", "Updating TaxiDash entry with ip " + entries[i].ip + " failed with error: " + e);
+                });
+            });
 
             /*
             db.servers.update(entries[i], function(err, updated){
@@ -61,7 +74,7 @@ var updateServerInfo = function(){
             });
            */
         }
-    })
+    });
 };
 
 var cron = require('cron'),
