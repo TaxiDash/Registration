@@ -86,8 +86,18 @@ updateTaxiDashServers.start();
 
 /* * * * * * * * * * * * * * * ROUTES * * * * * * * * * * * * * * */
 //Server Core 
-var Hapi = require("hapi"),
-    server = new Hapi.Server(8888, "0.0.0.0");
+var address = "0.0.0.0",
+    port = 8888,
+    Hapi = require("hapi"),
+    server = new Hapi.Server(port, address);
+    server.on('error', function(err){
+        console.log("ERROR: " + err);
+        switch (err.code){
+            case 'EADDRINUSE':
+                console.log("Address already in use. Is a registration server already running?");
+                break;
+        }
+    });
 
 //Validation
 var Joi = require("joi");
@@ -114,19 +124,23 @@ var nearbyConfig = {
                         logger.log('error', "Could not find nearby servers: " + err);
                         reply("ERROR: " + err);
                     } else {
-                        var response = [],
+                        var response = { nearbyCities: [] },
                             i = -1,
                             data,
                             length = Math.min(result.length, 3);
 
                         while(++i < length){
-                            data = {};
-                            data[result[i].city] = result[i].ip;
-                            response.push(data);
+                            data = { 
+                                city: result[i].city,
+                                state: result[i].state,
+                                ip: result[i].ip
+                            };
+                            response.nearbyCities.push(data);
                         }
                         //Respond
                         logger.log('info', "Found the following nearby servers: " + result);
-                        reply(JSON.stringify(response));
+                        console.log(JSON.stringify(response));
+                        reply(response);
                     }
             });
         } else {
