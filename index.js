@@ -46,33 +46,44 @@ var updateServerInfo = function(){
     // Get all nameless or old server entries from the database 
     // and query their name 
     logger.log('info', 'Updating server name info');
-    db.servers.find({ $or: [ {city: null }, { last_updated: { $gt: expiredTime } }]}, function(err, entries){
-        var i = entries.length,
-            name,
-            city;
-        while (i--){
-            //get names of each entry and update it
-            logger.log('info', 'Updating name for ' + entries[i].ip);
-            http.get(options, function(resp){
-                resp.on('data', function(chunk){
-                    console.log("info", "received " + chunk + " from " + entries[i].ip);
-                    //TODO
-                    //name = "Nashville";//TODO Get the right name
-                    //city = 
-                }).on("error", function(e){
-                    logger.log("error", "Updating TaxiDash entry with ip " + entries[i].ip + " failed with error: " + e);
-                });
-            });
 
-            /*
-            db.servers.update(entries[i], function(err, updated){
-                if(err || !updated){
-                    logger.log('error', 'Entry not updated: ' + entries[i] + ' to name "' + name + '"');
-                } else {
-                    logger.log('info', 'Entry name updated: ' + entries[i] + ' to name "' + name + '"');
-                }
-            });
-           */
+    db.servers.find({ $or: [ {city: null }, { last_updated: null }, 
+                    { last_updated: { $gt: expiredTime } }]}, function(err, entries){
+        if (err){
+            console.log("ERROR: " + err);
+        } else {
+            var i = entries ? entries.length : 0,
+                dest,
+                id;
+
+            while (i--){
+                //create destination
+                dest = 'http://localhost:3000/general_info.json';
+                //dest = 'http://' + entries[i].ip + '/general_info.json';
+                
+                id = entries[i]._id;
+
+                //get names of each entry and update it
+                console.log('info:\t'+ 'Updating name for ' + entries[i].ip + '( ' + dest + ' )' );
+                http.get(dest, function(resp){
+                    console.log("resp is " + resp.statusCode);
+                    resp.on('data', function(chunk){
+                        console.log("info:\t"+ "id " + id);
+                        console.log("info:\t"+ "received " + chunk);
+
+                        //Update the entry
+                        db.servers.update({ _id: id }, { city: chunk.city, state: chunk.state });
+
+                    }).on("error", function(err){
+                        logger.log("error", "Updating TaxiDash entry with ip " + entries[i].ip + " failed with error: " + err);
+                        console.log("error:\t"+ "Updating TaxiDash entry with ip " + entries[i].ip + " failed with error: " + err);
+                    });
+                }).on('error', function(err){
+                        logger.log("error", "Updating TaxiDash entry with ip " + entries[i].ip + " failed with error: " + err);
+                        console.log("error"+ "Updating TaxiDash entry with ip " + entries[i].ip + " failed with error: " + err);
+                });
+
+           }
         }
     });
 };
@@ -125,7 +136,7 @@ var nearbyConfig = {
                             response.push(data);
                         }
                         //Respond
-                        logger.log('info', "Found the following nearby servers: " + result);
+                        logger.log('info', "Found the following nearby servers: " + JSON.stringify(result));
                         reply(JSON.stringify(response));
                     }
             });
