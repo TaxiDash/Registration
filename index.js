@@ -57,13 +57,12 @@ var updateServerInfo = function(){
     db.servers.find({ $or: [ {city: null }, { last_updated: null }, 
                     { last_updated: { $lt: expiredTime } }]}, function(err, entries){
         if (err){
-            console.log("ERROR: " + err);
+            logger.log("error", "Couldn't find entries to update. Error: " + err);
         } else {
             var i = entries ? entries.length : 0,
                 dest,
                 id;
 
-            console.log("ENTRIES: " + JSON.stringify(entries));
             while (i--){
                 if (entries[i].ip){ 
                     //create destination
@@ -158,6 +157,7 @@ var Joi = require("joi");
 //Get Nearby TaxiDash Server
 var nearbyConfig = {
     handler: function(request, reply) {
+        var response = {};
         logger.log('info', "Request for TaxiDash server near " 
                    + request.query.latitude + ", " + request.query.longitude);
 
@@ -172,12 +172,13 @@ var nearbyConfig = {
                 function(err, result){
                     if (err){
                         logger.log('error', "Could not find nearby servers: " + err);
-                        reply("ERROR: " + err);
+                        response.error = err;
                     } else {
-                        var response = { cities: [] },
-                            i = -1,
+                        var i = -1,
                             data,
                             length = Math.min(result.length, 3);
+
+                        response.cities = [];
 
                         while(++i < length){
                             data = { 
@@ -189,12 +190,13 @@ var nearbyConfig = {
                         }
                         //Respond
                         logger.log('info', "Found the following nearby servers: " + result);
-                        console.log(JSON.stringify(response));
-                        reply(response);
                     }
+
+                    reply(response);
             });
         } else {
-            reply("Need both a latitude and longitude to get a nearby server.");
+            response.error = "Need both a latitude and longitude to get a nearby server.";
+            reply(response);
         }
     },
 
@@ -215,7 +217,9 @@ server.route({
 //Get TaxiDash Server By Name
 var nameConfig = {
     handler: function(request, reply) {
-        var q = {};//query
+        var response = {},
+            q = {};//query
+
         if (request.query.city){
             q.city = request.query.city;
         } 
@@ -228,22 +232,23 @@ var nameConfig = {
             logger.log('info', "Searching for TaxiDash server for " + request.query.city + ", " + request.query.state);
             db.servers.find(q, function(err, result){
                 if (result){
-                    var response = { cities: [] },
-                        entry;
+                    var entry;
 
+                    response.cities = [];
                     while(result.length){
                         entry = result.pop();
                         response.cities.push({ city: entry.city,
                                                      state: entry.state,
                                                      address: entry.ip });
                     }
-                    reply(response);
                 } else {
-                    reply("Could not find server by name " + request.query.city+ ", " + request.query.state);
+                    response.error = "Could not find server by name " + request.query.city+ ", " + request.query.state;
                 }
+                reply(response);
             });
         } else {
-            reply("Need a server name.");
+            response.error = "Need a server name.";
+            reply(reponse);
         }
     },
     validate: {
@@ -265,21 +270,23 @@ server.route({
     path: "/getAllTaxiDashServers",
     method: "GET",
     handler: function(request, reply) {
+        var response = {};
+
         logger.log('info', "Getting all server names...");
         db.servers.find({}, function(err, result){
             if (result){
-                var response = { cities: [] },
-                    entry;
+                var entry;
 
+                response.cities = [];
                 while(result.length){
                     entry = result.pop();
                     response.cities.push({ city: entry.city, state: entry.state, address: entry.ip });
                 }
-                reply(response);
             } else {
-                reply("Could not find all servers");
+                response.error = "Could not find all servers";
             }
 
+            reply(response);
         });
     }
 });
