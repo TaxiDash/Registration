@@ -37,18 +37,25 @@ logger.log('info', "Log file created on " + (new Date()));
 
 var databaseUrl = "localhost:27017/taxidash",
     collections = ["servers"],
-    db = require("mongojs").connect(databaseUrl, collections),
+    mongojs = require("mongojs"),
+    db = mongojs.connect(databaseUrl, collections),
+    ObjectId = mongojs.ObjectId,
     increment = 604800000,//valid for 1 week
-    expiredTime = new Date().getTime() + increment;
+    currentTime,
+    expiredTime,
+    ip_address,
+    external_address = require('external-address');
 
 //Updating server info
 var updateServerInfo = function(){
     // Get all nameless or old server entries from the database 
     // and query their name 
     logger.log('info', 'Updating server name info');
+    currentTime = new Date().getTime();
+    expiredTime = currentTime - increment;
 
     db.servers.find({ $or: [ {city: null }, { last_updated: null }, 
-                    { last_updated: { $gt: expiredTime } }]}, function(err, entries){
+                    { last_updated: { $lt: expiredTime } }]}, function(err, entries){
         if (err){
             console.log("ERROR: " + err);
         } else {
@@ -56,42 +63,104 @@ var updateServerInfo = function(){
                 dest,
                 id;
 
+            console.log("ENTRIES: " + JSON.stringify(entries));
             while (i--){
-                //create destination
-                dest = 'http://localhost:3000/general_info.json';
-                //dest = 'http://' + entries[i].ip + '/general_info.json';
-                
-                id = entries[i]._id;
+                if (entries[i].ip){ 
+                    //create destination
+                    if (ip_address){
+                        console.log("\nip_address is " + ip_address + "'" );
+                        console.log("\nentries[i].ip'" + entries[i].ip + "'");
+                        console.log("\nentries[i].ip.indexOf(ip_address) " + entries[i].ip.indexOf(ip_address));
 
-                //get names of each entry and update it
-                console.log('info:\t'+ 'Updating name for ' + entries[i].ip + '( ' + dest + ' )' );
-                http.get(dest, function(resp){
-                    console.log("resp is " + resp.statusCode);
-                    resp.on('data', function(chunk){
-                        console.log("info:\t"+ "id " + id);
-                        console.log("info:\t"+ "received " + chunk);
+                        if( entries[i].ip.indexOf(ip_address) !== -1){//resolve any requests to TaxiDash servers
+                            entries[i].ip = entries[i].ip.replace(ip_address, "localhost");//on same machine
+                        }
+                    }
+                    dest = 'http://' + entries[i].ip + '/general_info.json';
 
-                        //Update the entry
-                        db.servers.update({ _id: id }, { city: chunk.city, state: chunk.state });
+                    id = entries[i]._id;
 
-                    }).on("error", function(err){
-                        logger.log("error", "Updating TaxiDash entry with ip " + entries[i].ip + " failed with error: " + err);
-                        console.log("error:\t"+ "Updating TaxiDash entry with ip " + entries[i].ip + " failed with error: " + err);
+                    //get names of each entry and update it
+                    console.log('info:\t'+ 'Updating name for ' + entries[i].ip + '( ' + dest + ' )' );
+                    http.get(dest, function(resp){
+                        console.log("resp is " + resp.statusCode);
+                        var res = "";
+                        resp.on('data', function(chunk){
+                            res += chunk;
+                            console.log("info:\t"+ "id " + id);
+                            console.log("info:\t"+ "received " + chunk);
+                            console.log("UPDATING:\t"+ "chunk: " + JSON.stringify(chunk));
+                            //console.log("UPDATING:\t"+ "resp: " + JSON.stringify(resp));
+
+
+                        }).on('end', function(){
+                            //Update the entry after retrieving the entry's city, state name
+                          res = JSON.parse(res);
+                          db.servers.update({ _id: ObjectId(id) }, { $set: { city: res.city, 
+                                            state: res.state,
+                                            last_updated: currentTime } }, function(err, updated){
+                                                console.log("err\t" + err);
+                                                console.log("updated\t" + JSON.stringify(updated));
+                                                if(err || !updated){
+                                                    logger.log("error", "Update to entry " + id + " failed with error: " + err);
+                                                }else{
+                                                    logger.log("info", "Updated entry " + id);
+                                                }
+                                            });
+                        }).on("error", function(err){
+                            logger.log("error", "Updating TaxiDash entry with ip " + entries[i].ip + " failed with error: " + err);
+                            console.log("error:\t"+ "Updating TaxiDash entry with ip " + entries[i].ip + " failed with error: " + err);
+                        });
+                    }).on('error', function(err){
+                        logger.log("error", "Updating TaxiDash entry failed with error: " + err);
+                        console.log("error", "Updating TaxiDash entry failed with error: " + err);
                     });
-                }).on('error', function(err){
-                        logger.log("error", "Updating TaxiDash entry with ip " + entries[i].ip + " failed with error: " + err);
-                        console.log("error"+ "Updating TaxiDash entry with ip " + entries[i].ip + " failed with error: " + err);
-                });
 
-           }
+                }
+            }
         }
     });
 };
 
 var cron = require('cron'),
-    updateTaxiDashServers = cron.job("0 0 0 * * *", updateServerInfo());
+    updateTaxiDashServers = cron.job("0 * * * * *", updateServerInfo);
+    //updateTaxiDashServers = cron.job("0 0 0 * * *", updateServerInfo());
 
-updateTaxiDashServers.start();
+external_address.lookup(function(error, address){
+    console.log("external_address finished with ERROR:\t" + error + "\nMSG:\t" + address);
+
+    if(!error && address){
+        ip_address = address.replace("\n","");
+        console.log("ip_address is " + ip_address);
+        updateServerInfo();
+        updateTaxiDashServers.start();
+    }
+});
+/*
+http.request({
+    hostname: 'fugal.net',
+    path: '/ip.cgi',
+    agent: false
+}, function(res) {
+    if(res.statusCode != 200) {
+        throw new Error('non-OK status: ' + res.statusCode);
+    }
+    res.setEncoding('utf-8');
+    var ipAddress = '';
+    res.on('data', function(chunk) { ipAddress += chunk;
+        console.log("ip_address is " + ipAddress);
+    });
+    res.on('end', function() {
+        // ipAddress contains the external IP address
+        ip_address = ipAddress;
+        console.log("ip_address is " + ipAddress);
+        updateServerInfo();
+        });
+        })
+        .on('error', function(err) {
+            throw err;
+        });
+       */
 
 /* * * * * * * * * * * * * * * END TAXIDASH SERVER INFO * * * * * * * * * * * * * * */
 
@@ -209,7 +278,8 @@ var nameConfig = {
             state: Joi.string().min(1).max(2)
         }
     }
-}
+};
+
 server.route({
     path: "/getTaxiDashByName",
     method: "GET",
@@ -224,12 +294,12 @@ server.route({
         logger.log('info', "Getting all server names...");
         db.servers.find({}, function(err, result){
             if (result){
-                var response = "",
+                var response = { cities: [] },
                     entry;
 
                 while(result.length){
                     entry = result.pop();
-                    response += entry.city + "," + entry.state + " ";
+                    response.cities.push({ city: entry.city, state: entry.state });
                 }
                 reply(response);
             } else {
