@@ -87,11 +87,7 @@ var updateServerInfo = function(){
                         var res = "";
                         resp.on('data', function(chunk){
                             res += chunk;
-                            console.log("info:\t"+ "id " + id);
-                            console.log("info:\t"+ "received " + chunk);
-                            console.log("UPDATING:\t"+ "chunk: " + JSON.stringify(chunk));
-                            //console.log("UPDATING:\t"+ "resp: " + JSON.stringify(resp));
-
+                            logger.log("info","Querying city, state. Received " + chunk);
 
                         }).on('end', function(){
                             //Update the entry after retrieving the entry's city, state name
@@ -124,43 +120,20 @@ var updateServerInfo = function(){
 
 var cron = require('cron'),
     updateTaxiDashServers = cron.job("0 * * * * *", updateServerInfo);
-    //updateTaxiDashServers = cron.job("0 0 0 * * *", updateServerInfo());
 
+//Get external ip address to resolve any addresses of taxidash servers on same machine or LAN
 external_address.lookup(function(error, address){
     console.log("external_address finished with ERROR:\t" + error + "\nMSG:\t" + address);
 
     if(!error && address){
         ip_address = address.replace("\n","");
-        console.log("ip_address is " + ip_address);
+        console.log("external ip_address is " + ip_address);
         updateServerInfo();
-        updateTaxiDashServers.start();
     }
 });
-/*
-http.request({
-    hostname: 'fugal.net',
-    path: '/ip.cgi',
-    agent: false
-}, function(res) {
-    if(res.statusCode != 200) {
-        throw new Error('non-OK status: ' + res.statusCode);
-    }
-    res.setEncoding('utf-8');
-    var ipAddress = '';
-    res.on('data', function(chunk) { ipAddress += chunk;
-        console.log("ip_address is " + ipAddress);
-    });
-    res.on('end', function() {
-        // ipAddress contains the external IP address
-        ip_address = ipAddress;
-        console.log("ip_address is " + ipAddress);
-        updateServerInfo();
-        });
-        })
-        .on('error', function(err) {
-            throw err;
-        });
-       */
+
+//Start the update job
+updateTaxiDashServers.start();
 
 /* * * * * * * * * * * * * * * END TAXIDASH SERVER INFO * * * * * * * * * * * * * * */
 
@@ -190,9 +163,6 @@ var nearbyConfig = {
 
         if (request.query.latitude && request.query.longitude){
             //Look up TaxiDash server nearest the given latitude, longitude
-            //consider using geoNear from mongo
-            //use sphere-knn
-            //TODO
             var lat = request.query.latitude,
                 lon = request.query.longitude;
 
@@ -204,7 +174,7 @@ var nearbyConfig = {
                         logger.log('error', "Could not find nearby servers: " + err);
                         reply("ERROR: " + err);
                     } else {
-                        var response = { nearbyCities: [] },
+                        var response = { cities: [] },
                             i = -1,
                             data,
                             length = Math.min(result.length, 3);
@@ -215,7 +185,7 @@ var nearbyConfig = {
                                 state: result[i].state,
                                 ip: result[i].ip
                             };
-                            response.nearbyCities.push(data);
+                            response.cities.push(data);
                         }
                         //Respond
                         logger.log('info', "Found the following nearby servers: " + result);
@@ -255,17 +225,21 @@ var nameConfig = {
 
         if (Object.keys(q).length){
             //Look up TaxiDash by ip address for city
-            logger.log('info', "Searching for TaxiDash server for " + request.query.city);
+            logger.log('info', "Searching for TaxiDash server for " + request.query.city + ", " + request.query.state);
             db.servers.find(q, function(err, result){
                 if (result){
-                    var response = "";
+                    var response = { cities: [] },
+                        entry;
 
                     while(result.length){
-                        response += result.pop().ip + " ";
+                        entry = result.pop();
+                        response.cities.push({ city: entry.city,
+                                                     state: entry.state,
+                                                     address: entry.ip });
                     }
                     reply(response);
                 } else {
-                    reply("Could not find server by name " + request.query.city);
+                    reply("Could not find server by name " + request.query.city+ ", " + request.query.state);
                 }
             });
         } else {
@@ -288,7 +262,7 @@ server.route({
 
 //Get All TaxiDash Servers By Name
 server.route({
-    path: "/getAllTaxiDashNames",
+    path: "/getAllTaxiDashServers",
     method: "GET",
     handler: function(request, reply) {
         logger.log('info', "Getting all server names...");
@@ -299,7 +273,7 @@ server.route({
 
                 while(result.length){
                     entry = result.pop();
-                    response.cities.push({ city: entry.city, state: entry.state });
+                    response.cities.push({ city: entry.city, state: entry.state, address: entry.ip });
                 }
                 reply(response);
             } else {
